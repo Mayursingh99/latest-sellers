@@ -16,8 +16,8 @@ import * as THREE from "three";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const CLOCK_PATH  = "/destroy_clock.glb";
-const PCT_PATH    = "/destroy_percentage.glb";
+const CLOCK_PATH  = "https://latest-sellers.vercel.app/destroy_clock.glb";
+const PCT_PATH    = "https://latest-sellers.vercel.app/destroy_percentage.glb";
 const MODEL_SCALE = 5.5;
 
 const IDLE_DUR     = 3.0;
