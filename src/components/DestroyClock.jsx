@@ -21,16 +21,16 @@ const PCT_PATH    = "https://latest-sellers.vercel.app/The Oracle's Eye 2.glb";
 const MODEL_SCALE = 5.5;
 
 const IDLE_DUR     = 3.0;
-const EXPLODE_DUR  = 1.6;
-const MORPH_DUR    = 4.0;
+const EXPLODE_DUR  = 2.2;
 const REVEALED_DUR = 99999;
-
-const MORPH_BLEND_START    = 0.30;
-const MORPH_BLEND_END      = 0.88;
-const EXPLODE_STAGGER_FRAC = 0.18;
-const SCATTER_RADIUS       = 0.12;  // small outward blast
-const SCATTER_SCALE        = 1.08;  // shards barely grow
-const MORPH_STAGGER_FRAC   = 0.22;  // tight reassembly // shards stay near original size
+const MORPH_DUR          = 6.5;
+const MORPH_BLEND_START  = 0.50;
+const MORPH_BLEND_END    = 0.92;
+const MORPH_STAGGER_FRAC = 0.18;
+const EXPLODE_STAGGER_FRAC = 0.18;   // ← this was missing
+const SCATTER_RADIUS = 0.35;
+const SCATTER_SCALE  = 1.65; // shards barely grow
+// const MORPH_STAGGER_FRAC   = 0.22;  // tight reassembly // shards stay near original size
 
 // ── Easing
 
@@ -89,9 +89,11 @@ function cloneShard(sourceMesh) {
   c.castShadow = false;
   c.receiveShadow = false;
   c.matrixAutoUpdate = true;
+  c.renderOrder = 1;
   const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   sourceMesh.matrixWorld.decompose(p, q, s);
   c.userData.baseQuat = q.clone();
+  c.renderOrder = 1;
   return c;
 }
 
@@ -115,13 +117,13 @@ function buildShardData(clockShards, pctShards, count) {
 
     // Direction = outward from model center through this shard's position
     const center = modelCenter.clone().multiplyScalar(MODEL_SCALE);
-    const outDir  = clockSrc.clone().sub(center).normalize();
+    const outDir = clockSrc.clone().sub(center).normalize()
 
-    // Add tiny random wobble so shards don't look perfectly rigid
-    outDir.x += (rng() - 0.5) * 0.15;
-    outDir.y += (rng() - 0.5) * 0.15;
-    outDir.z += (rng() - 0.5) * 0.15;
-    outDir.normalize();
+// stronger randomness
+outDir.x += (rng() - 0.5) * 0.35
+outDir.y += (rng() - 0.5) * 0.35
+outDir.z += (rng() - 0.5) * 0.35
+outDir.normalize()
 
     const blastDist = SCATTER_RADIUS * (0.7 + rng() * 0.6);
     const scattered = clockSrc.clone().add(outDir.multiplyScalar(blastDist));
@@ -179,8 +181,8 @@ function StoneField({ clockShards, pctShards, stateRef, onMorphProgress, onAllLa
     shardData.forEach((sd, i) => pinnedPos[i].copy(sd.clockSrc));
   }, [shardData, pinnedPos]);
 
-  useFrame(() => {
-    const { phase, elapsed } = stateRef.current;
+  useFrame((_, delta) => {
+  const { phase, elapsed } = stateRef.current;
     const grp = groupRef.current;
     if (!grp) return;
 
@@ -227,74 +229,83 @@ function StoneField({ clockShards, pctShards, stateRef, onMorphProgress, onAllLa
     }
 
     // ── MORPHING
-    if (phase === "morphing") {
-      const morphT     = Math.min(elapsed / MORPH_DUR, 1);
-      const orbitAngle = ease.inOutQuart(morphT) * Math.PI * 2;
+    // ── MORPHING
+if (phase === "morphing") {
+  const morphT = Math.min(elapsed / MORPH_DUR, 1);
+  const orbitAngle = ease.inOutQuart(morphT) * Math.PI * 2;
 
-      if (elapsed < 0.016) {
-        landedCount.current  = 0;
-        hasFiredDone.current = false;
-      }
+  if (elapsed < 0.016) {
+    landedCount.current = 0;
+    hasFiredDone.current = false;
+  }
 
-      let totalBlend = 0;
+  let totalBlend = 0;
 
-      stoneClones.forEach((c, i) => {
-        const sd = shardData[i];
+  stoneClones.forEach((c, i) => {
+    const sd = shardData[i];
 
-        const blendStart = MORPH_BLEND_START + sd.morphDelayFrac;
-        const blendDur   = (MORPH_BLEND_END - MORPH_BLEND_START) * 0.6;
-        const blendEnd   = Math.min(blendStart + blendDur, MORPH_BLEND_END);
+    const blendStart = MORPH_BLEND_START + sd.morphDelayFrac;
+    const blendDur = (MORPH_BLEND_END - MORPH_BLEND_START) * 0.6;
+    const blendEnd = Math.min(blendStart + blendDur, MORPH_BLEND_END);
 
-        let blend = 0;
-        if (morphT >= blendStart) {
-          const raw = (morphT - blendStart) / Math.max(blendEnd - blendStart, 0.001);
-          blend = ease.smooth(Math.min(raw, 1));
-        }
-
-        totalBlend += blend;
-
-        const orbitedPos  = rotatePointY(pinnedPos[i], orbitAngle);
-        const smoothBlend = ease.inOutQuart(ease.smooth(blend));
-        c.position.lerpVectors(orbitedPos, sd.pctTarget, smoothBlend);
-
-        const DISSOLVE_START = 0.55;
-
-        if (!c.visible && blend >= 1) return;
-         else if (blend > DISSOLVE_START) {
-          const dissolveT = (blend - DISSOLVE_START) / (1.0 - DISSOLVE_START);
-          const d         = ease.inOutCubic(dissolveT);
-          c.visible = true;
-          c.material.transparent = true;
-          c.material.opacity     = 1.0 - d;
-          c.scale.setScalar(MODEL_SCALE * (1.0 - d * 0.45));
-          c.material.needsUpdate = true;
-        } else {
-          c.visible = true;
-          c.material.transparent = true;
-          c.material.opacity     = 1;
-          const scale = SCATTER_SCALE + (MODEL_SCALE - SCATTER_SCALE) * blend;
-          c.scale.setScalar(scale);
-        }
-
-        const tumbleAmount = sd.tumbleAngle * (1 - blend);
-        tmpQuat.setFromAxisAngle(sd.tumbleAxis, tumbleAmount);
-        const orbitSpin = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 1, 0),
-          orbitAngle * (1 - blend) * 0.3
-        );
-        tmpQuat.premultiply(orbitSpin);
-        c.quaternion.copy(tmpQuat);
-
-        if (blend >= 1) landedCount.current = Math.max(landedCount.current, i + 1);
-      });
-
-      onMorphProgress?.(count > 0 ? totalBlend / count : 0);
-
-      if (!hasFiredDone.current && landedCount.current >= count) {
-        hasFiredDone.current = true;
-        onAllLanded?.();
-      }
+    let blend = 0;
+    if (morphT >= blendStart) {
+      const raw = (morphT - blendStart) / Math.max(blendEnd - blendStart, 0.001);
+      blend = ease.smooth(Math.min(raw, 1));
     }
+
+    totalBlend += blend;
+
+    const orbitedPos = rotatePointY(pinnedPos[i], orbitAngle);
+    const smoothBlend = ease.inOutQuart(blend);
+
+    // smooth morph movement
+    const target = orbitedPos.clone().lerp(sd.pctTarget, smoothBlend);
+c.position.lerp(target, 1 - Math.pow(0.004, delta));  // exponential ease — no snap
+
+    const DISSOLVE_START = 0.82; 
+    if (!c.visible && blend >= 1) return;
+
+    if (blend > DISSOLVE_START) {
+      const dissolveT = (blend - DISSOLVE_START) / (1 - DISSOLVE_START);
+      const d = ease.outCubic(dissolveT);
+
+      c.visible = true;
+      c.material.transparent = true;
+      c.material.opacity = 1 - d;
+
+      // keep shard size stable
+      c.scale.setScalar(MODEL_SCALE);
+
+      c.material.needsUpdate = true;
+    } else {
+      c.visible = true;
+      c.material.transparent = true;
+      c.material.opacity = 1;
+
+      const scale = SCATTER_SCALE + (MODEL_SCALE - SCATTER_SCALE) * blend;
+      c.scale.setScalar(scale);
+    }
+
+    const tumbleAmount = sd.tumbleAngle * (1 - smoothBlend);  // use smoothBlend not blend
+tmpQuat.setFromAxisAngle(sd.tumbleAxis, tumbleAmount);
+const orbitSpin = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(0, 1, 0),
+  orbitAngle * (1 - smoothBlend) * 0.3
+);
+tmpQuat.premultiply(orbitSpin);
+c.quaternion.slerp(tmpQuat, 1 - Math.pow(0.004, delta)); 
+
+    if (blend >= 1) landedCount.current = Math.max(landedCount.current, i + 1);
+  });
+
+  onMorphProgress?.(count > 0 ? totalBlend / count : 0);
+
+  if (!hasFiredDone.current && landedCount.current >= count) {
+    hasFiredDone.current = true;
+    onAllLanded?.();
+  }
+}
   });
 
   return <group ref={groupRef} />;
@@ -330,56 +341,54 @@ function SolidModelReveal({ scene, revealPhase, idlePhase, stateRef, morphProgre
   }, [solidMeshes]);
 
   useFrame(() => {
-    if (!groupRef.current) return;
-    const { phase } = stateRef.current;
+  if (!groupRef.current) return;
 
-    if (phase === revealPhase) {
-      const progress = morphProgressRef.current;
-      const total    = solidMeshes.length;
-      solidMeshes.forEach((mesh, i) => {
-        const threshold = i / total;
-        if (progress > threshold) {
-          const localT = THREE.MathUtils.clamp(
-            (progress - threshold) * total * 0.35, 0, 1
-          );
-          const eased = ease.inOutQuart(localT);
-          mesh.visible = true;
-          mesh.material.transparent = eased < 1;
-          mesh.material.opacity = eased;
-          mesh.material.needsUpdate = true;
-        } else {
-          mesh.visible = false;
-        }
-      });
+  const { phase } = stateRef.current;
 
-    } else if (phase === "revealed" && idlePhase === "idle") {
-      solidMeshes.forEach((mesh) => {
+  if (phase === revealPhase) {
+    const progress = morphProgressRef.current;
+    const total = solidMeshes.length;
+
+    solidMeshes.forEach((mesh, i) => {
+      const threshold = i / total;
+
+      const revealStart = 0.80;
+
+      if (progress > threshold + revealStart) {
+        const localT = THREE.MathUtils.clamp(
+  (progress - revealStart - threshold) * total * 0.18,  // wider window = softer
+  0, 1
+);
+const eased = ease.outCubic(localT);  
+
         mesh.visible = true;
-        mesh.material.transparent = false;
-        mesh.material.opacity = 1;
+        mesh.material.transparent = eased < 1;
+        mesh.material.opacity = eased;
         mesh.material.needsUpdate = true;
-      });
-
-    } else if (phase === idlePhase) {
-      solidMeshes.forEach((mesh) => {
-        mesh.visible = true;
-        mesh.material.transparent = false;
-        mesh.material.opacity = 1;
-        mesh.material.needsUpdate = true;
-      });
-
-    } else {
-      // idle / exploding — hidden
-      solidMeshes.forEach((mesh) => {
+      } else {
         mesh.visible = false;
-        mesh.material.transparent = true;
-        mesh.material.opacity = 0;
-        mesh.material.needsUpdate = true;
-      });
-    }
+      }
+    });
+  }
 
-    groupRef.current.scale.setScalar(MODEL_SCALE);
-  });
+  else if (phase === "revealed") {
+    solidMeshes.forEach((mesh) => {
+      mesh.visible = true;
+      mesh.material.transparent = false;
+      mesh.material.opacity = 1;
+    });
+  }
+
+  else {
+    solidMeshes.forEach((mesh) => {
+      mesh.visible = false;
+      mesh.material.transparent = true;
+      mesh.material.opacity = 0;
+    });
+  }
+
+  groupRef.current.scale.setScalar(MODEL_SCALE);
+});
 
   if (!solidMeshes.length) return null;
   return (
@@ -490,7 +499,7 @@ export default function ModelViewer() {
       }
     }
 
-    if (st.phase === "morphing" && st.elapsed >= MORPH_DUR + 0.5) {
+    if (st.phase === "morphing" && st.elapsed >= MORPH_DUR + 1.2) {
       st.phase = "revealed"; st.elapsed = 0;
     }
 
