@@ -16,21 +16,21 @@ import * as THREE from "three";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const CLOCK_PATH  = "https://latest-sellers.vercel.app/The_Keystone_1.glb";
-const PCT_PATH    = "https://latest-sellers.vercel.app/The_Oracle's_Eye 1.glb";
+const CLOCK_PATH  = "https://latest-sellers.vercel.app/The Keystone 2.glb";
+const PCT_PATH    = "https://latest-sellers.vercel.app/The Oracle's Eye 2.glb";
 const MODEL_SCALE = 5.5;
 
 const IDLE_DUR     = 3.0;
-const EXPLODE_DUR  = 1.4;
-const MORPH_DUR    = 3.6;
+const EXPLODE_DUR  = 1.6;
+const MORPH_DUR    = 4.0;
 const REVEALED_DUR = 99999;
 
-const MORPH_BLEND_START    = 0.38;
-const MORPH_BLEND_END      = 0.93;
-const EXPLODE_STAGGER_FRAC = 0.10;
-const MORPH_STAGGER_FRAC   = 0.35;
-const SCATTER_RADIUS       = 0.28;
-const SCATTER_SCALE        = 2.0;
+const MORPH_BLEND_START    = 0.30;
+const MORPH_BLEND_END      = 0.88;
+const EXPLODE_STAGGER_FRAC = 0.18;
+const SCATTER_RADIUS       = 0.12;  // small outward blast
+const SCATTER_SCALE        = 1.08;  // shards barely grow
+const MORPH_STAGGER_FRAC   = 0.22;  // tight reassembly // shards stay near original size
 
 // ── Easing
 
@@ -98,28 +98,36 @@ function cloneShard(sourceMesh) {
 // ── Build per-shard animation data 
 
 function buildShardData(clockShards, pctShards, count) {
-  const posRng         = createRng(99991);
   const kickOrder      = seededShuffle([...Array(count).keys()], createRng(42));
   const morphOrder     = seededShuffle([...Array(count).keys()], createRng(88888));
   const explodeStagger = EXPLODE_DUR * EXPLODE_STAGGER_FRAC;
   const blendWindow    = MORPH_BLEND_END - MORPH_BLEND_START;
+
+  // Find the center of the whole clock model
+  const modelCenter = new THREE.Vector3();
+  clockShards.forEach(s => modelCenter.add(s.worldCenter));
+  modelCenter.divideScalar(clockShards.length);
 
   return Array.from({ length: count }, (_, i) => {
     const rng       = createRng(i * 7919 + 3571);
     const clockSrc  = clockShards[i].worldCenter.clone().multiplyScalar(MODEL_SCALE);
     const pctTarget = pctShards[i].worldCenter.clone().multiplyScalar(MODEL_SCALE);
 
-    const angle     = posRng() * Math.PI * 2;
-    const elevation = (posRng() - 0.5) * Math.PI;
-    const radius    = SCATTER_RADIUS * (0.6 + posRng() * 1.4);
-    const scattered = clockSrc.clone().add(new THREE.Vector3(
-      Math.cos(angle) * Math.cos(elevation) * radius,
-      Math.sin(elevation) * radius * 0.55,
-      Math.sin(angle) * Math.cos(elevation) * radius * 0.45,
-    ));
+    // Direction = outward from model center through this shard's position
+    const center = modelCenter.clone().multiplyScalar(MODEL_SCALE);
+    const outDir  = clockSrc.clone().sub(center).normalize();
+
+    // Add tiny random wobble so shards don't look perfectly rigid
+    outDir.x += (rng() - 0.5) * 0.15;
+    outDir.y += (rng() - 0.5) * 0.15;
+    outDir.z += (rng() - 0.5) * 0.15;
+    outDir.normalize();
+
+    const blastDist = SCATTER_RADIUS * (0.7 + rng() * 0.6);
+    const scattered = clockSrc.clone().add(outDir.multiplyScalar(blastDist));
 
     const tumbleAxis  = new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
-    const tumbleAngle = (rng() - 0.5) * Math.PI * 1.2;
+    const tumbleAngle = (rng() - 0.5) * Math.PI * 0.4; // less spin = more readable
 
     const explodeDelay   = (kickOrder.indexOf(i) / Math.max(count - 1, 1)) * explodeStagger;
     const morphDelayFrac = (morphOrder.indexOf(i) / Math.max(count - 1, 1)) * (MORPH_STAGGER_FRAC * blendWindow);
