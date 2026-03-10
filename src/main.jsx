@@ -9,6 +9,8 @@ if (container) {
   ReactDOM.createRoot(container).render(
     <React.StrictMode>
       <App />
+      
     </React.StrictMode>
   );
+   // ← must be false to allow preventDefault
 }

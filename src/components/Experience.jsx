@@ -4,7 +4,7 @@ import ModelViewer from "./DestroyClock";
 export const Experience = () => {
   return (
     <>
-      {/* <OrbitControls enableZoom={false} /> */}
+      {/* <OrbitControls enableZoom={false} enablePan={false} enableRotate={false} /> */}
       <ModelViewer />
     </>
   );
